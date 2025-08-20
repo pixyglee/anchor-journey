@@ -1,0 +1,24 @@
+[package]
+name = "token_vault"
+version = "0.1.0"
+description = "Created with Anchor"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "token_vault"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+anchor-debug = [] # Keep this if you want it, it's harmless here
+
+[dependencies]
+anchor-lang = "0.31.1"
+anchor-spl = { version = "0.31.1", features = ["token"] } # <<< THIS IS THE CRITICAL LINE
+spl-token = { version = "4.0.0", features = ["no-entrypoint"] } # <<< This is also important
