@@ -56,6 +56,22 @@ pub mod token_vault {
         ];
         let signer = &[&authority_seed[..]];
 
+            // Super simple analogy 🍪
+
+            // Think of it like a cookie recipe:
+
+            // "authority" = flour
+
+            // vault_key = sugar
+
+            // bump = secret spice
+
+            // Put them together, you always get the same cookie (PDA address).
+
+            // authority_seed = the recipe for 1 cookie (the PDA).
+
+            // signer = a box that holds recipes for all cookies you want Solana to bake (PDAs).
+
         let cpi_accounts = Transfer {
             from: ctx.accounts.vault_token_account.to_account_info(),
             to: ctx.accounts.user_token_account.to_account_info(),
@@ -161,6 +177,18 @@ pub struct InitializeVault<'info> {
     pub system_program: Program<'info, System>, // The System program for account creation
 }
 
+// This struct defines all accounts needed to create a vault:
+
+// A vault state account (stores metadata)
+
+// A PDA authority (controls transfers)
+
+// A token account (holds tokens)
+
+// The mint (token type)
+
+// The payer (funds everything)
+
 #[derive(Accounts)]
 pub struct Deposit<'info> {
     #[account(
@@ -186,6 +214,12 @@ pub struct Deposit<'info> {
     pub authority: Signer<'info>, // The user initiating the deposit (must be vault owner)
     pub token_program: Program<'info, Token>,
 }
+
+// User signs → proves they own vault + token account
+
+// Tokens move: user_token_account → vault_token_account
+
+// Vault PDA ties everything together securely
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
@@ -220,6 +254,12 @@ pub struct Withdraw<'info> {
     pub authority: Signer<'info>, // The user initiating the withdrawal (must be vault owner)
     pub token_program: Program<'info, Token>,
 }
+// Check that signer = vault authority.
+
+// Vault’s PDA signs (via vault_authority) to release tokens.
+
+// Tokens move:
+// vault_token_account → user_token_account.
 
 #[derive(Accounts)]
 pub struct LockVault<'info> {
@@ -233,7 +273,13 @@ pub struct LockVault<'info> {
 
     pub authority: Signer<'info>, // The vault owner
 }
+// User calls lock_vault.
 
+// Program checks they are the vault’s authority.
+
+// Updates vault.is_locked = true and sets vault.unlock_timestamp (based on your logic).
+
+// Vault can’t be withdrawn from until the unlock condition is met.
 #[derive(Accounts)]
 pub struct UnlockVault<'info> {
     #[account(
