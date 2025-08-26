@@ -19,6 +19,6 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 anchor-debug = [] # Keep this if you want it, it's harmless here
 
 [dependencies]
-anchor-lang = "0.31.1"
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
 anchor-spl = { version = "0.31.1", features = ["token"] } # <<< THIS IS THE CRITICAL LINE
 spl-token = { version = "4.0.0", features = ["no-entrypoint"] } # <<< This is also important
