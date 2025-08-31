@@ -8,6 +8,7 @@ pub mod token_vault {
     use super::*;
 
     pub fn initialize_vault(ctx: Context<InitializeVault>) -> Result<()> {
+        //fetching the bump seed for the vault account
         let bump = ctx.bumps.vault;
     
         ctx.accounts.vault.set_inner(Vault {
@@ -135,6 +136,43 @@ pub mod token_vault {
         Ok(())
     }
     
+    pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
+        let vault = &ctx.accounts.vault;
+        let user_stake = &mut ctx.accounts.user_stake;
+    
+        // Check user has enough staked balance
+        require!(user_stake.amount >= amount, VaultError::InsufficientStake);
+    
+        // Update user stake record
+        user_stake.amount -= amount;
+        let vault_key = vault.key(); 
+
+        // Transfer tokens back from vault → user
+        let seeds = &[
+            b"authority",
+            vault_key.as_ref(),
+            &[vault.authority_bump],
+        ];
+        let signer = &[&seeds[..]];
+    
+        let cpi_accounts = token::Transfer {
+            from: ctx.accounts.vault_token_account.to_account_info(),
+            to: ctx.accounts.user_token_account.to_account_info(),
+            authority: ctx.accounts.vault_authority.to_account_info(),
+        };
+    
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer,
+            ),
+            amount,
+        )?;
+    
+        Ok(())
+    }
+    
     
 }
 
@@ -144,6 +182,7 @@ pub mod token_vault {
 
 #[account]
 #[derive(InitSpace)]
+//Anchor macro that auto-calculates the required space for the account based on its fields.
 pub struct Vault {
     pub authority: Pubkey,       // Who can control this vault
     pub token_account: Pubkey,   // The token account holding the funds
@@ -167,6 +206,8 @@ pub enum VaultError {
     InsufficientFunds,
     #[msg("Unauthorized access")]
     UnauthorizedAccess,
+    #[msg("Insufficient staked balance")]
+    InsufficientStake, 
 }
 #[account]
 #[derive(InitSpace)]
@@ -378,3 +419,39 @@ impl<'info> Stake<'info> {
         CpiContext::new(self.token_program.to_account_info(), cpi_accounts)
     }
 }
+
+#[derive(Accounts)]
+pub struct Unstake<'info> {
+    #[account(
+        mut,
+        seeds = [b"vault", vault.authority.as_ref()],
+        bump,
+    )]
+    pub vault: Account<'info, Vault>,
+
+    #[account(
+        mut,
+        seeds = [b"user-stake", authority.key().as_ref(), vault.key().as_ref()],
+        bump,
+        close = authority // Optionally close account after unstake
+    )]
+    pub user_stake: Account<'info, UserStake>,
+
+    #[account(mut, token::authority = authority)]
+    pub user_token_account: Account<'info, TokenAccount>, // user ka wallet
+
+    #[account(mut, address = vault.token_account)]
+    pub vault_token_account: Account<'info, TokenAccount>, // vault ka wallet
+
+    /// CHECK: PDA signer for vault
+    #[account(
+        seeds = [b"authority", vault.key().as_ref()],
+        bump = vault.authority_bump
+    )]
+    pub vault_authority: UncheckedAccount<'info>, 
+
+    pub authority: Signer<'info>, // user jo unstake kar raha hai
+    pub token_program: Program<'info, Token>,
+}
+
+
