@@ -1,5 +1,13 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+
+// Import instruction and state modules
+pub mod errors;
+pub mod instructions;
+pub mod state;
+
+use errors::*;
+use instructions::*;
+use state::*;
 
 declare_id!("EwbYP92VR6QeHSUpSrV7mGQhhqWNr8fE3z4uP8u4uvGj");
 
@@ -7,451 +15,35 @@ declare_id!("EwbYP92VR6QeHSUpSrV7mGQhhqWNr8fE3z4uP8u4uvGj");
 pub mod token_vault {
     use super::*;
 
-    pub fn initialize_vault(ctx: Context<InitializeVault>) -> Result<()> {
-        //fetching the bump seed for the vault account
-        let bump = ctx.bumps.vault;
-    
-        ctx.accounts.vault.set_inner(Vault {
-            authority: ctx.accounts.payer.key(),
-            token_account: ctx.accounts.token_account.key(),
-            bump,
-            authority_bump: 0,
-            is_locked: false,
-            unlock_timestamp: 0,
-            total_staked: 0,
-        });
-    
-        Ok(())
+    pub fn initialize_vault(
+        ctx: Context<InitializeVault>,
+        vault_bump: u8,
+        authority_bump: u8,
+    ) -> Result<()> {
+        instructions::initialize::initialize_vault(ctx, vault_bump, authority_bump)
     }
-    
-    
 
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
-        let cpi_accounts = Transfer {
-            from: ctx.accounts.user_token_account.to_account_info(),
-            to: ctx.accounts.vault_token_account.to_account_info(),
-            authority: ctx.accounts.authority.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
-        token::transfer(cpi_ctx, amount)?;
-        Ok(())
+        instructions::deposit::deposit(ctx, amount)
     }
 
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
-        let vault = &ctx.accounts.vault;
-
-        // Check if vault is locked
-        require!(!vault.is_locked, VaultError::VaultStillLocked);
-
-        // Check if we have enough tokens
-        require!(
-            ctx.accounts.vault_token_account.amount >= amount,
-            VaultError::InsufficientFunds
-        );
-        let vault_key = vault.key();
-        // Create PDA signer seeds
-        let authority_seed = &[
-            b"authority",
-            vault_key.as_ref(),
-            &[vault.authority_bump],
-        ];
-        let signer = &[&authority_seed[..]];
-
-            // Super simple analogy 🍪
-
-            // Think of it like a cookie recipe:
-
-            // "authority" = flour
-
-            // vault_key = sugar
-
-            // bump = secret spice
-
-            // Put them together, you always get the same cookie (PDA address).
-
-            // authority_seed = the recipe for 1 cookie (the PDA).
-
-            // signer = a box that holds recipes for all cookies you want Solana to bake (PDAs).
-
-        let cpi_accounts = Transfer {
-            from: ctx.accounts.vault_token_account.to_account_info(),
-            to: ctx.accounts.user_token_account.to_account_info(),
-            authority: ctx.accounts.vault_authority.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-        token::transfer(cpi_ctx, amount)?;
-        Ok(())
+        instructions::withdraw::withdraw(ctx, amount)
     }
 
     pub fn lock_vault(ctx: Context<LockVault>, unlock_timestamp: i64) -> Result<()> {
-        let vault = &mut ctx.accounts.vault;
-        vault.is_locked = true;
-        vault.unlock_timestamp = unlock_timestamp;
-
-        msg!("Vault locked until timestamp: {}", unlock_timestamp);
-        Ok(())
+        instructions::lock::lock_vault(ctx, unlock_timestamp)
     }
 
     pub fn unlock_vault(ctx: Context<UnlockVault>) -> Result<()> {
-        let vault = &mut ctx.accounts.vault;
-        let clock = Clock::get()?;
-        require!(
-            clock.unix_timestamp >= vault.unlock_timestamp,
-            VaultError::VaultStillLocked
-        );
-        vault.is_locked = false;
-        vault.unlock_timestamp = 0;
-
-        msg!("Vault unlocked successfully");
-        Ok(())
+        instructions::unlock::unlock_vault(ctx)
     }
 
     pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
-        let user_stake = &mut ctx.accounts.user_stake;
-        let vault = &mut ctx.accounts.vault;
-    
-        // Bumps (Anchor auto-fills these)
-        let _vault_bump = ctx.bumps.vault;
-        let user_bump = ctx.bumps.user_stake;
-    
-        // First-time init of user_stake PDA
-        if user_stake.amount == 0 {
-            user_stake.staker = ctx.accounts.authority.key();
-            user_stake.last_update = Clock::get()?.unix_timestamp;
-            user_stake.bump = user_bump;
-        }
-    
-        // Update staking balances
-        user_stake.amount = user_stake.amount.saturating_add(amount);
-        vault.total_staked = vault.total_staked.saturating_add(amount);
-    
-        // Transfer tokens from user → vault
-        token::transfer(
-            ctx.accounts.into_transfer_to_vault_context(),
-            amount,
-        )?;
-    
-        Ok(())
+        instructions::stake::stake(ctx, amount)
     }
-    
+
     pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
-        let vault = &ctx.accounts.vault;
-        let user_stake = &mut ctx.accounts.user_stake;
-    
-        // Check user has enough staked balance
-        require!(user_stake.amount >= amount, VaultError::InsufficientStake);
-    
-        // Update user stake record
-        user_stake.amount -= amount;
-        let vault_key = vault.key(); 
-
-        // Transfer tokens back from vault → user
-        let seeds = &[
-            b"authority",
-            vault_key.as_ref(),
-            &[vault.authority_bump],
-        ];
-        let signer = &[&seeds[..]];
-    
-        let cpi_accounts = token::Transfer {
-            from: ctx.accounts.vault_token_account.to_account_info(),
-            to: ctx.accounts.user_token_account.to_account_info(),
-            authority: ctx.accounts.vault_authority.to_account_info(),
-        };
-    
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                cpi_accounts,
-                signer,
-            ),
-            amount,
-        )?;
-    
-        Ok(())
-    }
-    
-    
-}
-
-// -------------------------------------------------------------------------
-// Account Structures
-// -------------------------------------------------------------------------
-
-#[account]
-#[derive(InitSpace)]
-//Anchor macro that auto-calculates the required space for the account based on its fields.
-pub struct Vault {
-    pub authority: Pubkey,       // Who can control this vault
-    pub token_account: Pubkey,   // The token account holding the funds
-    pub bump: u8,                // PDA bump for the vault account
-    pub authority_bump: u8,      // PDA bump for the vault authority
-    pub is_locked: bool,         // Whether the vault is locked
-    pub unlock_timestamp: i64,   // When the vault can be unlocked (0 = no time lock)
-    pub total_staked: u64,
-
-}
-
-// -------------------------------------------------------------------------
-// Error Codes
-// -------------------------------------------------------------------------
-
-#[error_code]
-pub enum VaultError {
-    #[msg("Vault is still locked")]
-    VaultStillLocked,
-    #[msg("Insufficient funds in vault")]
-    InsufficientFunds,
-    #[msg("Unauthorized access")]
-    UnauthorizedAccess,
-    #[msg("Insufficient staked balance")]
-    InsufficientStake, 
-}
-#[account]
-#[derive(InitSpace)]
-pub struct UserStake {
-    pub staker: Pubkey,
-    pub amount: u64,
-    pub last_update: i64,
-    pub bump: u8, 
-}
-
-
-// -------------------------------------------------------------------------
-// Instruction Contexts
-// -------------------------------------------------------------------------
-
-#[derive(Accounts)]
-#[instruction(bump: u8, authority_bump: u8)]
-pub struct InitializeVault<'info> {
-    #[account(
-        init,
-        payer = payer,
-        seeds = [b"vault", payer.key().as_ref()],
-        bump,
-        space = 8 + Vault::INIT_SPACE
-    )]
-    pub vault: Account<'info, Vault>,
-
-    /// CHECK: This account is safe because it's a PDA derived from the vault
-    /// and its bump is verified and used for signing CPIs.
-    #[account(
-        seeds = [b"authority", vault.key().as_ref()],
-        bump = authority_bump
-    )]
-    pub vault_authority: UncheckedAccount<'info>,
-
-    #[account(
-        init,
-        payer = payer,
-        token::mint = mint,
-        token::authority = vault_authority,
-    )]
-    pub token_account: Account<'info, TokenAccount>, // The token account for the vault
-
-    pub mint: Account<'info, Mint>, // The mint of the token being stored
-
-    #[account(mut)]
-    pub payer: Signer<'info>, // The account paying for the transaction and account creation
-
-    pub token_program: Program<'info, Token>, // The SPL Token program
-    pub system_program: Program<'info, System>, // The System program for account creation
-}
-
-// This struct defines all accounts needed to create a vault:
-
-// A vault state account (stores metadata)
-
-// A PDA authority (controls transfers)
-
-// A token account (holds tokens)
-
-// The mint (token type)
-
-// The payer (funds everything)
-
-#[derive(Accounts)]
-#[account(mut)]
-pub struct Deposit<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault", authority.key().as_ref()],
-        bump = vault.bump,
-        has_one = authority // Ensures the signer is the vault's authority
-    )]
-    pub vault: Account<'info, Vault>,
-
-    #[account(
-        mut,
-        token::authority = authority, // Ensures the signer owns this token account
-    )]
-    pub user_token_account: Account<'info, TokenAccount>, // The user's token account to deposit from
-
-    #[account(
-        mut,
-        address = vault.token_account // Ensures this is the token account specified in the vault
-    )]
-    pub vault_token_account: Account<'info, TokenAccount>, // The vault's token account
-
-    pub authority: Signer<'info>, // The user initiating the deposit (must be vault owner)
-    pub token_program: Program<'info, Token>,
-}
-
-// User signs → proves they own vault + token account
-
-// Tokens move: user_token_account → vault_token_account
-
-// Vault PDA ties everything together securely
-
-#[derive(Accounts)]
-pub struct Withdraw<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault", authority.key().as_ref()],
-        bump = vault.bump,
-        has_one = authority // Ensures the signer is the vault's authority
-    )]
-    pub vault: Account<'info, Vault>,
-
-    /// CHECK: This account is safe because it's a PDA derived from the vault
-    /// and its bump is verified and used for signing CPIs.
-    #[account(
-        seeds = [b"authority", vault.key().as_ref()],
-        bump = vault.authority_bump // Verify the authority PDA's bump
-    )]
-    pub vault_authority: UncheckedAccount<'info>, // PDA that owns the vault_token_account
-
-    #[account(
-        mut,
-        token::authority = authority, // Ensures the signer owns this token account
-    )]
-    pub user_token_account: Account<'info, TokenAccount>, // The user's token account to withdraw to
-
-    #[account(
-        mut,
-        address = vault.token_account // Ensures this is the token account specified in the vault
-    )]
-    pub vault_token_account: Account<'info, TokenAccount>, // The vault's token account
-
-    pub authority: Signer<'info>, // The user initiating the withdrawl (must be vault owner)
-    pub token_program: Program<'info, Token>,
-}
-// Check that signer = vault authority.
-
-// Vault’s PDA signs (via vault_authority) to release tokens.
-
-// Tokens move:
-// vault_token_account → user_token_account.
-
-#[derive(Accounts)]
-pub struct LockVault<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault", authority.key().as_ref()],
-        bump = vault.bump,
-        has_one = authority // Ensures only the vault authority can lock it
-    )]
-    pub vault: Account<'info, Vault>,
-
-    pub authority: Signer<'info>, // The vault owner
-}
-// User calls lock_vault.
-
-// Program checks they are the vault’s authority.
-
-// Updates vault.is_locked = true and sets vault.unlock_timestamp (based on your logic).
-
-// Vault can’t be withdrawn from until the unlock condition is met.
-#[derive(Accounts)]
-pub struct UnlockVault<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault", authority.key().as_ref()],
-        bump = vault.bump,
-        has_one = authority // Ensures only the vault authority can unlock it
-    )]
-    pub vault: Account<'info, Vault>,
-
-    pub authority: Signer<'info>, // The vault owner
-}
-
-#[derive(Accounts)]
-pub struct Stake<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault", vault.authority.as_ref()],
-        bump,
-    )]
-    pub vault: Account<'info, Vault>,
-
-    #[account(
-        init_if_needed,
-        payer = authority,
-        space = 8 + UserStake::INIT_SPACE,
-        seeds = [b"user-stake", authority.key().as_ref(), vault.key().as_ref()],
-        bump
-    )]
-    pub user_stake: Account<'info, UserStake>,
-
-    #[account(mut, token::authority = authority)]
-    pub user_token_account: Account<'info, TokenAccount>,
-
-    #[account(mut, address = vault.token_account)]
-    pub vault_token_account: Account<'info, TokenAccount>,
-
-    #[account(mut)] 
-    pub authority: Signer<'info>,
-
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
-}
-
-
-impl<'info> Stake<'info> {
-    pub fn into_transfer_to_vault_context(&self) -> CpiContext<'_, '_, '_, 'info, token::Transfer<'info>> {
-        let cpi_accounts = token::Transfer {
-            from: self.user_token_account.to_account_info(),
-            to: self.vault_token_account.to_account_info(),
-            authority: self.authority.to_account_info(),
-        };
-        CpiContext::new(self.token_program.to_account_info(), cpi_accounts)
+        instructions::unstake::unstake(ctx, amount)
     }
 }
-
-#[derive(Accounts)]
-pub struct Unstake<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault", vault.authority.as_ref()],
-        bump,
-    )]
-    pub vault: Account<'info, Vault>,
-
-    #[account(
-        mut,
-        seeds = [b"user-stake", authority.key().as_ref(), vault.key().as_ref()],
-        bump,
-        close = authority // Optionally close account after unstake
-    )]
-    pub user_stake: Account<'info, UserStake>,
-
-    #[account(mut, token::authority = authority)]
-    pub user_token_account: Account<'info, TokenAccount>, // user ka wallet
-
-    #[account(mut, address = vault.token_account)]
-    pub vault_token_account: Account<'info, TokenAccount>, // vault ka wallet
-
-    /// CHECK: PDA signer for vault
-    #[account(
-        seeds = [b"authority", vault.key().as_ref()],
-        bump = vault.authority_bump
-    )]
-    pub vault_authority: UncheckedAccount<'info>, 
-
-    pub authority: Signer<'info>, // user jo unstake kar raha hai
-    pub token_program: Program<'info, Token>,
-}
-
-
