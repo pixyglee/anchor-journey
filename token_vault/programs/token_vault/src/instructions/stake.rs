@@ -1,26 +1,46 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Token, TokenAccount};
 
 use crate::state::*;
 
-pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
-    let user_stake = &mut ctx.accounts.user_stake;
-    let vault = &mut ctx.accounts.vault;
-    let user_bump = ctx.bumps.user_stake;
-
-    if user_stake.amount == 0 {
-        user_stake.staker = ctx.accounts.authority.key();
-        user_stake.last_update = Clock::get()?.unix_timestamp;
-        user_stake.bump = user_bump;
+fn harvest(user: &mut UserStake, vault: &Vault) {
+    if user.amount == 0 { 
+        user.reward_debt = vault.acc_reward_per_share; 
+        return; 
     }
+    let pending = (user.amount as u128)
+        .saturating_mul(vault.acc_reward_per_share.saturating_sub(user.reward_debt))
+        / Vault::SCALING;
+    user.pending_rewards = user.pending_rewards.saturating_add(pending as u64);
+    user.reward_debt = vault.acc_reward_per_share;
+}
 
-    user_stake.amount = user_stake.amount.saturating_add(amount);
-    vault.total_staked = vault.total_staked.saturating_add(amount);
+pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
 
+    {
+        let vault = &mut ctx.accounts.vault;
+        let user = &mut ctx.accounts.user_stake;
+
+        vault.update_rewards(now);
+
+        if user.amount == 0 {
+            user.staker = ctx.accounts.authority.key();
+            user.bump = ctx.bumps.user_stake;
+        }
+
+        harvest(user, vault);
+
+        user.amount = user.amount.saturating_add(amount);
+        vault.total_staked = vault.total_staked.saturating_add(amount);
+        user.last_update = now;
+        user.reward_debt = vault.acc_reward_per_share;
+    } 
     token::transfer(ctx.accounts.into_transfer_to_vault_context(), amount)?;
 
     Ok(())
 }
+
 
 #[derive(Accounts)]
 pub struct Stake<'info> {

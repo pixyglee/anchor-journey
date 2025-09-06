@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
 
-// Import instruction and state modules
 pub mod errors;
 pub mod instructions;
 pub mod state;
@@ -19,8 +18,10 @@ pub mod token_vault {
         ctx: Context<InitializeVault>,
         vault_bump: u8,
         authority_bump: u8,
+        reward_rate: u64, 
+
     ) -> Result<()> {
-        instructions::initialize::initialize_vault(ctx, vault_bump, authority_bump)
+        instructions::initialize::initialize_vault(ctx, vault_bump, authority_bump, reward_rate)
     }
 
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
@@ -46,4 +47,11 @@ pub mod token_vault {
     pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
         instructions::unstake::unstake(ctx, amount)
     }
+    pub fn claim(ctx: Context<Claim>) -> Result<()> {
+        instructions::claim::claim(ctx)
+    }
+    pub fn fund_rewards(ctx: Context<FundRewards>, amount: u64) -> Result<()> {
+        instructions::fund_rewards::fund_rewards(ctx, amount)
+    }
+    
 }
