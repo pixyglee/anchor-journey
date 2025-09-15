@@ -5,8 +5,8 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
-[programs.devnet]
-token_vault = "EwbYP92VR6QeHSUpSrV7mGQhhqWNr8fE3z4uP8u4uvGj"  # make sure this is the devnet-deployed program ID
+[programs.localnet]
+staking_contract = "EFpkThxpS78297Lor9as1hW9pWa3My9kc1k1auiyS4b4"
 
 [registry]
 url = "https://api.apr.dev"
@@ -17,5 +17,3 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
-
-
