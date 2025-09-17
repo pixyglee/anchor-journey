@@ -12,7 +12,7 @@ pub mod staking_contract {
     use anchor_lang::system_program::{transfer, Transfer};
 
     use super::*;
-
+    /// Initializes the treasury account with admin rights and sets counters to 0
     pub fn initialize_treasury(ctx: Context<InitializeTreasury>) -> Result<()> {
         let treasury = &mut ctx.accounts.treasury;
         treasury.admin = ctx.accounts.admin.key();
@@ -23,7 +23,7 @@ pub mod staking_contract {
         msg!("Treasury initialized with admin: {}", treasury.admin);
         Ok(())
     }
-
+    /// Allows the admin to deposit funds (lamports) into the treasury
     pub fn fund_treasury(ctx: Context<FundTreasury>, amount: u64) -> Result<()> {
         require!(amount > 0, StakeError::InvalidAmount);
         
@@ -46,7 +46,7 @@ pub mod staking_contract {
         msg!("Treasury funded with {} lamports. Total funded: {}", amount, treasury.total_funded);
         Ok(())
     }
-
+    /// Creates a new PDA account for a user where their staking data will be stored
     pub fn create_pda_account(ctx: Context<CreatePdaAccount>) -> Result<()> {
         let pda_account = &mut ctx.accounts.pda_account;
         let clock = Clock::get()?;
@@ -60,7 +60,7 @@ pub mod staking_contract {
         msg!("PDA account created successfully for user: {}", pda_account.owner);
         Ok(())
     }
-
+    /// Stakes lamports into the user’s PDA account and updates their reward points
     pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
         require!(amount > 0, StakeError::InvalidAmount);
 
@@ -92,7 +92,7 @@ pub mod staking_contract {
         );
         Ok(())
     }
-
+    /// Unstakes lamports from the user’s PDA account and updates their reward points
     pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
         require!(amount > 0, StakeError::InvalidAmount);
 
@@ -123,7 +123,7 @@ pub mod staking_contract {
 
         Ok(())
     }
-
+    /// Lets a user claim their accumulated points (resets to zero after claim)
     pub fn claim_points(ctx: Context<ClaimPoints>) -> Result<()> {
         let pda_account = &mut ctx.accounts.pda_account;
         let clock = Clock::get()?;
@@ -140,7 +140,7 @@ pub mod staking_contract {
         
         Ok(())
     }
-
+    /// Converts user’s points into SOL, paid from treasury (if enough funds exist)
     pub fn convert_points_to_sol(
         ctx: Context<ConvertPointsToSol>, 
         points_to_convert: u64
@@ -207,7 +207,7 @@ pub mod staking_contract {
         
         Ok(())
     }
-    
+    /// Shows how many points the user currently has, without mutating state
     pub fn get_points(ctx: Context<GetPoints>) -> Result<()> {
         let pda_account = &ctx.accounts.pda_account;
         let clock = Clock::get()?;
@@ -233,7 +233,7 @@ pub mod staking_contract {
         
         Ok(())
     }
-
+    /// Displays treasury info like balance, available funds, funded and paid out totals
     pub fn get_treasury_info(ctx: Context<GetTreasuryInfo>) -> Result<()> {
         let treasury = &ctx.accounts.treasury;
         let balance = treasury.to_account_info().lamports();
@@ -251,7 +251,7 @@ pub mod staking_contract {
         Ok(())
     }
 }
-
+/// Updates the user’s points based on staked amount and time elapsed
 fn update_points(pda_account: &mut StakeAccount, current_time: i64) -> Result<()> {
     let time_elapsed = current_time
         .checked_sub(pda_account.last_update_time)
@@ -269,7 +269,7 @@ fn update_points(pda_account: &mut StakeAccount, current_time: i64) -> Result<()
 
     Ok(())
 }
-
+/// Calculates how many points should be earned given staked amount and elapsed time
 fn calculate_points_earned(staked_amount: u64, time_elapsed_seconds: u64) -> Result<u64> {
     let points = (staked_amount as u128)
         .checked_mul(time_elapsed_seconds as u128)
@@ -287,14 +287,14 @@ fn calculate_points_earned(staked_amount: u64, time_elapsed_seconds: u64) -> Res
 
     Ok(points as u64)
 }
-
+/// Admin-only: pauses conversion of points → SOL
 pub fn pause_conversions(ctx: Context<AdminOnly>) -> Result<()> {
     let treasury = &mut ctx.accounts.treasury;
     treasury.paused = true;
     msg!("⏸️ Point conversions PAUSED by admin");
     Ok(())
 }
-
+/// Admin-only: resumes conversion of points → SOL
 pub fn unpause_conversions(ctx: Context<AdminOnly>) -> Result<()> {
     let treasury = &mut ctx.accounts.treasury;
     treasury.paused = false;

@@ -13,7 +13,7 @@ describe("staking-contract", () => {
   let stakeTime = 0;
   const POINTS_PER_SOL_PER_DAY = 1_000_000;
   const SECONDS_PER_DAY = 86_400;
-
+  // 🔹 Before tests: derive the PDA for the test user
   before(async () => {
     const [pdaAddress, bump] = PublicKey.findProgramAddressSync(
       [Buffer.from("client"), provider.publicKey.toBuffer()],
@@ -21,7 +21,7 @@ describe("staking-contract", () => {
     );
     pda = pdaAddress;
   });
-
+  // ✅ Test 1: Create the PDA account for staking
   it("create account", async () => {
     const tx = await program.methods
       .createPdaAccount()
@@ -45,7 +45,7 @@ describe("staking-contract", () => {
     console.log("Account created at timestamp:", stakeTime);
     console.log("Create account transaction signature:", tx);
   });
-
+  // ✅ Test 2: Stake 10 SOL into the PDA
   it("stake 10 SOL", async () => {
     const stakeAmount = new anchor.BN(10 * LAMPORTS_PER_SOL);
 
@@ -77,7 +77,7 @@ describe("staking-contract", () => {
     console.log("Stake transaction signature:", tx);
     console.log("Staked amount:", stakeAmount.toNumber() / LAMPORTS_PER_SOL, "SOL");
   });
-
+  // ✅ Test 3: Wait a short period, then check that points are accumulating
   it("wait and check points accumulation", async () => {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
@@ -93,7 +93,7 @@ describe("staking-contract", () => {
     console.log("Current points:", stakeAccount.totalPoints.toNumber());
     console.log("Get points transaction signature:", tx);
   });
-
+  // ✅ Test 4: Unstake 1 SOL and verify balances + points
   it("unstake 1 SOL", async () => {
     const unstakeAmount = new anchor.BN(1 * LAMPORTS_PER_SOL);
     const initialBalance = await provider.connection.getBalance(provider.publicKey);
@@ -141,7 +141,7 @@ describe("staking-contract", () => {
       );
     }
   });
-
+  // ✅ Test 5: Wait a bit longer to accumulate more points
   it("wait more time for additional points", async () => {
     await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -155,7 +155,7 @@ describe("staking-contract", () => {
 
     console.log("Get points after additional wait transaction signature:", tx);
   });
-
+  // ✅ Test 6: Claim all accumulated points, should reset to 0
   it("claim points", async () => {
     const stakeAccountBefore = await program.account.stakeAccount.fetch(pda);
     const pointsBeforeClaim = stakeAccountBefore.totalPoints.toNumber();
@@ -183,7 +183,7 @@ describe("staking-contract", () => {
       console.log("No points to claim, skipping claim test");
     }
   });
-
+  // ✅ Test 7: Unstake the remaining SOL completely
   it("unstake remaining balance", async () => {
     const stakeAccount = await program.account.stakeAccount.fetch(pda);
     const remainingStaked = stakeAccount.stakedAmount;
@@ -207,7 +207,7 @@ describe("staking-contract", () => {
       console.log("Final unstake transaction signature:", tx);
     }
   });
-
+  // ✅ Test 8: Claim any leftover points before the final state check
   it("claim any remaining points before final verification", async () => {
     const stakeAccount = await program.account.stakeAccount.fetch(pda);
     const remainingPoints = stakeAccount.totalPoints.toNumber();
@@ -228,7 +228,7 @@ describe("staking-contract", () => {
       console.log("No remaining points to claim");
     }
   });
-
+  // ✅ Test 9: Verify final account state (no stake, no points, owner still correct)
   it("verify account state after all operations", async () => {
     const stakeAccount = await program.account.stakeAccount.fetch(pda);
 
