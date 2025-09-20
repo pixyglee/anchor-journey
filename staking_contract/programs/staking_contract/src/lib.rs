@@ -310,7 +310,7 @@ pub struct InitializeTreasury<'info> {
     #[account(
         init,
         payer = admin,
-        space = 8 + 32 + 8 + 8 + 1,
+        space = 8 + 32 + 8 + 8 + 1 + 1,
         seeds = [b"treasury"],
         bump
     )]
